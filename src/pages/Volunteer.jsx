@@ -22,10 +22,9 @@ export default function Volunteer() {
     if (!form.name || !form.location || !form.skills) return
     setLoading(true)
 
-    // Always fall back to DEMO_NEEDS if localStorage is empty
     const stored = JSON.parse(localStorage.getItem('impactbridge_needs') || '[]')
-    const allNeeds = stored.length > 0 ? stored : DEMO_NEEDS
-    const openNeeds = allNeeds.filter(n => n.status === 'Open').slice(0, 6)
+    const openNeeds = stored.filter(n => n.status === 'Open').slice(0, 6)
+    const finalNeeds = openNeeds.length > 0 ? openNeeds : DEMO_NEEDS
 
     try {
       const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY)
@@ -35,7 +34,7 @@ export default function Volunteer() {
 Name: ${form.name}, Location: ${form.location}, Skills: ${form.skills}, Availability: ${form.availability}
 
 Community needs:
-${JSON.stringify(openNeeds)}
+${JSON.stringify(finalNeeds)}
 
 Analyze the volunteer's skills AND location to match them to needs.
 Rules:
@@ -77,7 +76,7 @@ Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
         'Shelter': ['construction', 'shelter', 'building', 'carpentry', 'housing'],
       }
 
-      const scored = openNeeds.map(n => {
+      const scored = finalNeeds.map(n => {
         const relatedSkills = needSkillMap[n.needType] || []
         const directMatch = skillsArray.some(s =>
           relatedSkills.some(r => r.includes(s) || s.includes(r))
@@ -94,7 +93,7 @@ Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
         const volunteerInBengaluru = bengaluruAliases.some(a => volunteerCity.includes(a))
         const needInBengaluru = bengaluruAliases.some(a => needLocation.includes(a))
         const sameCity = volunteerCityClean === needCityClean ||
-                         (volunteerInBengaluru && needInBengaluru)
+                        (volunteerInBengaluru && needInBengaluru)
         const differentCity = !sameCity && !sameNeighborhood
         const locationBonus = sameNeighborhood ? 10 : sameCity ? 5 : differentCity ? -15 : 0
         const urgencyBonus = n.urgency === 'High' ? 6 : n.urgency === 'Medium' ? 3 : 0
@@ -247,7 +246,7 @@ Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
               textAlign: 'center', marginTop: '1rem', color: '#666'
             }}>
               <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
-              <p>No open needs found right now. Check back soon!</p>
+              <p>No open needs found. Please try again shortly!</p>
             </div>
           )}
 

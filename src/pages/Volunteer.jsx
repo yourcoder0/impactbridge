@@ -27,20 +27,24 @@ Name: ${form.name}, Location: ${form.location}, Skills: ${form.skills}, Availabi
 Community needs:
 ${JSON.stringify(openNeeds)}
 
-Analyze the volunteer's skills and match them to the most relevant needs.
-A volunteer with Medical skills should match Medical needs with high score (85-95%).
-A volunteer with Teaching skills should match Education needs with high score (85-95%).
-Different skill types should get lower scores (55-70%) for unrelated needs.
-Scores must be DIFFERENT for each match - not all the same.
+Analyze the volunteer's skills AND location to match them to needs.
+Rules:
+- Same neighborhood = +10 score bonus
+- Same city = +5 score bonus  
+- Different city = -15 score penalty
+- Matching skills = base score 87-95%
+- Non-matching skills = base score 55-65%
+- Scores must be DIFFERENT for each match
+- matchReason must mention the volunteer's ACTUAL skills: ${form.skills}
 
-Return ONLY a JSON array of the top 3 best-matched needs. No extra text, no markdown:
+Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
 [{
   "needId": 1,
   "location": "location string",
   "needType": "type",
   "urgency": "High/Medium/Low",
   "description": "description",
-  "matchReason": "specific reason mentioning volunteer's actual skills",
+  "matchReason": "specific reason mentioning volunteer actual skills and location",
   "matchScore": 92
 }]`
 
@@ -68,16 +72,41 @@ Return ONLY a JSON array of the top 3 best-matched needs. No extra text, no mark
         const directMatch = skillsArray.some(s =>
           relatedSkills.some(r => r.includes(s) || s.includes(r))
         )
-        const locationMatch = n.location.toLowerCase()
-          .includes(form.location.toLowerCase().split(',')[0].toLowerCase())
+
+        // Smart location scoring
+        const volunteerCity = form.location.toLowerCase()
+        const needLocation = n.location.toLowerCase()
+
+        const volunteerCityClean = volunteerCity.split(',').map(s => s.trim()).pop()
+        const needCityClean = needLocation.split(',').map(s => s.trim()).pop()
+
+        const sameNeighborhood = needLocation.includes(
+          volunteerCity.split(',')[0].toLowerCase().trim()
+        )
+
+        const bengaluruAliases = ['bengaluru', 'bangalore', 'bengalore']
+        const volunteerInBengaluru = bengaluruAliases.some(a => volunteerCity.includes(a))
+        const needInBengaluru = bengaluruAliases.some(a => needLocation.includes(a))
+        const sameCity = volunteerCityClean === needCityClean ||
+                         (volunteerInBengaluru && needInBengaluru)
+        const differentCity = !sameCity && !sameNeighborhood
+
+        const locationBonus = sameNeighborhood ? 10 : sameCity ? 5 : differentCity ? -15 : 0
+
         const urgencyBonus = n.urgency === 'High' ? 6 : n.urgency === 'Medium' ? 3 : 0
-        const randomVariance = Math.floor(Math.random() * 5)
-        const baseScore = directMatch ? 87 : 58
-        const score = Math.min(98, baseScore + (locationMatch ? 5 : 0) + urgencyBonus + randomVariance)
+        const randomVariance = Math.floor(Math.random() * 4)
+        const baseScore = directMatch ? 87 : 60
+        const score = Math.min(98, Math.max(40, baseScore + locationBonus + urgencyBonus + randomVariance))
+
+        const locationNote = sameNeighborhood
+          ? `in your neighborhood`
+          : sameCity
+          ? `in your city`
+          : `in a different city (remote support possible)`
 
         const reason = directMatch
-          ? `Your ${form.skills} skills are a direct match for this ${n.needType} need in ${n.location}.`
-          : `Your availability and location near ${form.location} make you a helpful fit for this task.`
+          ? `Your ${form.skills} skills directly match this ${n.needType} need ${locationNote}.`
+          : `Your availability ${locationNote} makes you a helpful fit for this task.`
 
         return {
           needId: n.id,
@@ -170,7 +199,11 @@ Return ONLY a JSON array of the top 3 best-matched needs. No extra text, no mark
                   {needIcon(match.needType)} {match.needType} Need
                 </h3>
                 <span style={{
-                  background: match.matchScore >= 85 ? '#2d6a4f' : match.matchScore >= 70 ? '#d97706' : '#6b7280',
+                  background: match.matchScore >= 85
+                    ? '#2d6a4f'
+                    : match.matchScore >= 70
+                    ? '#d97706'
+                    : '#6b7280',
                   color: 'white',
                   padding: '0.3rem 0.8rem',
                   borderRadius: '20px',

@@ -27,32 +27,73 @@ Name: ${form.name}, Location: ${form.location}, Skills: ${form.skills}, Availabi
 Community needs:
 ${JSON.stringify(openNeeds)}
 
-Return ONLY a JSON array of the top 3 best-matched needs. Use this exact format:
+Analyze the volunteer's skills and match them to the most relevant needs.
+A volunteer with Medical skills should match Medical needs with high score (85-95%).
+A volunteer with Teaching skills should match Education needs with high score (85-95%).
+Different skill types should get lower scores (55-70%) for unrelated needs.
+Scores must be DIFFERENT for each match - not all the same.
+
+Return ONLY a JSON array of the top 3 best-matched needs. No extra text, no markdown:
 [{
   "needId": 1,
   "location": "location string",
   "needType": "type",
   "urgency": "High/Medium/Low",
   "description": "description",
-  "matchReason": "1-2 sentences why this volunteer fits",
-  "matchScore": 90
+  "matchReason": "specific reason mentioning volunteer's actual skills",
+  "matchScore": 92
 }]`
 
       const response = await model.generateContent(prompt)
       const text = response.response.text()
       const cleaned = text.replace(/```json|```/g, '').trim()
-      setMatches(JSON.parse(cleaned))
+      const parsed = JSON.parse(cleaned)
+      setMatches(parsed)
 
     } catch (err) {
-      const fallback = openNeeds.slice(0, 3).map((n, i) => ({
-        needId: n.id,
-        location: n.location,
-        needType: n.needType,
-        urgency: n.urgency,
-        description: n.description,
-        matchReason: `Your ${form.skills} skills and proximity to ${form.location} make you a strong match for this task.`,
-        matchScore: 92 - (i * 7)
-      }))
+      console.log('Using local matching:', err)
+
+      const skillsArray = form.skills.toLowerCase().split(',').map(s => s.trim())
+
+      const needSkillMap = {
+        'Medical': ['medical', 'doctor', 'nurse', 'health', 'medicine', 'healthcare'],
+        'Education': ['teaching', 'teacher', 'education', 'tutor', 'tutoring', 'school'],
+        'Food': ['cooking', 'food', 'chef', 'catering', 'nutrition'],
+        'Water': ['water', 'plumbing', 'sanitation', 'engineering'],
+        'Shelter': ['construction', 'shelter', 'building', 'carpentry', 'housing'],
+      }
+
+      const scored = openNeeds.map(n => {
+        const relatedSkills = needSkillMap[n.needType] || []
+        const directMatch = skillsArray.some(s =>
+          relatedSkills.some(r => r.includes(s) || s.includes(r))
+        )
+        const locationMatch = n.location.toLowerCase()
+          .includes(form.location.toLowerCase().split(',')[0].toLowerCase())
+        const urgencyBonus = n.urgency === 'High' ? 6 : n.urgency === 'Medium' ? 3 : 0
+        const randomVariance = Math.floor(Math.random() * 5)
+        const baseScore = directMatch ? 87 : 58
+        const score = Math.min(98, baseScore + (locationMatch ? 5 : 0) + urgencyBonus + randomVariance)
+
+        const reason = directMatch
+          ? `Your ${form.skills} skills are a direct match for this ${n.needType} need in ${n.location}.`
+          : `Your availability and location near ${form.location} make you a helpful fit for this task.`
+
+        return {
+          needId: n.id,
+          location: n.location,
+          needType: n.needType,
+          urgency: n.urgency,
+          description: n.description,
+          matchReason: reason,
+          matchScore: score
+        }
+      })
+
+      const fallback = scored
+        .sort((a, b) => b.matchScore - a.matchScore)
+        .slice(0, 3)
+
       setMatches(fallback)
     }
 
@@ -109,7 +150,9 @@ Return ONLY a JSON array of the top 3 best-matched needs. Use this exact format:
           {loading && (
             <div className="loading-spinner">
               <div className="spinner"></div>
-              <p style={{ color: '#2d6a4f', fontWeight: '600' }}>AI is matching you to community needs...</p>
+              <p style={{ color: '#2d6a4f', fontWeight: '600' }}>
+                AI is matching you to community needs...
+              </p>
             </div>
           )}
         </div>
@@ -127,14 +170,19 @@ Return ONLY a JSON array of the top 3 best-matched needs. Use this exact format:
                   {needIcon(match.needType)} {match.needType} Need
                 </h3>
                 <span style={{
-                  background: '#2d6a4f', color: 'white',
-                  padding: '0.3rem 0.8rem', borderRadius: '20px', fontWeight: '700'
+                  background: match.matchScore >= 85 ? '#2d6a4f' : match.matchScore >= 70 ? '#d97706' : '#6b7280',
+                  color: 'white',
+                  padding: '0.3rem 0.8rem',
+                  borderRadius: '20px',
+                  fontWeight: '700'
                 }}>
                   {match.matchScore}% Match
                 </span>
               </div>
               <p style={{ marginBottom: '0.4rem', fontWeight: '500' }}>📍 {match.location}</p>
-              <p style={{ color: '#555', fontSize: '0.9rem', marginBottom: '0.75rem' }}>{match.description}</p>
+              <p style={{ color: '#555', fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+                {match.description}
+              </p>
               <p style={{
                 background: 'white', padding: '0.75rem', borderRadius: '8px',
                 fontSize: '0.9rem', color: '#2d6a4f', fontStyle: 'italic', marginBottom: '1rem'

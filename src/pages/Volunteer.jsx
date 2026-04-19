@@ -3,6 +3,14 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const needIcon = (t) => ({ Medical:'🏥', Food:'🍲', Education:'📚', Water:'💧', Shelter:'🏠' }[t] || '🆘')
 
+const DEMO_NEEDS = [
+  { id: 1, location: "Koramangala, Bengaluru", needType: "Medical", urgency: "High", description: "Elderly residents need medical check-ups and medicine supply regularly.", peopleAffected: "15", status: "Open" },
+  { id: 2, location: "Indiranagar, Bengaluru", needType: "Education", urgency: "Medium", description: "Children from low-income families need after-school tutoring support.", peopleAffected: "30", status: "Open" },
+  { id: 3, location: "Whitefield, Bengaluru", needType: "Food", urgency: "High", description: "Migrant workers need daily meals. Many haven't eaten in 2 days.", peopleAffected: "50", status: "Open" },
+  { id: 4, location: "HSR Layout, Bengaluru", needType: "Water", urgency: "Low", description: "Clean drinking water access is limited in this locality.", peopleAffected: "100", status: "Open" },
+  { id: 5, location: "Jayanagar, Bengaluru", needType: "Shelter", urgency: "Medium", description: "Homeless families need temporary shelter during monsoon season.", peopleAffected: "8", status: "Open" },
+]
+
 export default function Volunteer() {
   const [form, setForm] = useState({ name: '', location: '', skills: '', availability: 'Weekends' })
   const [matches, setMatches] = useState(null)
@@ -14,8 +22,10 @@ export default function Volunteer() {
     if (!form.name || !form.location || !form.skills) return
     setLoading(true)
 
-    const needs = JSON.parse(localStorage.getItem('impactbridge_needs') || '[]')
-    const openNeeds = needs.filter(n => n.status === 'Open').slice(0, 6)
+    // Always fall back to DEMO_NEEDS if localStorage is empty
+    const stored = JSON.parse(localStorage.getItem('impactbridge_needs') || '[]')
+    const allNeeds = stored.length > 0 ? stored : DEMO_NEEDS
+    const openNeeds = allNeeds.filter(n => n.status === 'Open').slice(0, 6)
 
     try {
       const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY)
@@ -30,7 +40,7 @@ ${JSON.stringify(openNeeds)}
 Analyze the volunteer's skills AND location to match them to needs.
 Rules:
 - Same neighborhood = +10 score bonus
-- Same city = +5 score bonus  
+- Same city = +5 score bonus
 - Different city = -15 score penalty
 - Matching skills = base score 87-95%
 - Non-matching skills = base score 55-65%
@@ -73,37 +83,29 @@ Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
           relatedSkills.some(r => r.includes(s) || s.includes(r))
         )
 
-        // Smart location scoring
         const volunteerCity = form.location.toLowerCase()
         const needLocation = n.location.toLowerCase()
-
         const volunteerCityClean = volunteerCity.split(',').map(s => s.trim()).pop()
         const needCityClean = needLocation.split(',').map(s => s.trim()).pop()
-
         const sameNeighborhood = needLocation.includes(
           volunteerCity.split(',')[0].toLowerCase().trim()
         )
-
         const bengaluruAliases = ['bengaluru', 'bangalore', 'bengalore']
         const volunteerInBengaluru = bengaluruAliases.some(a => volunteerCity.includes(a))
         const needInBengaluru = bengaluruAliases.some(a => needLocation.includes(a))
         const sameCity = volunteerCityClean === needCityClean ||
                          (volunteerInBengaluru && needInBengaluru)
         const differentCity = !sameCity && !sameNeighborhood
-
         const locationBonus = sameNeighborhood ? 10 : sameCity ? 5 : differentCity ? -15 : 0
-
         const urgencyBonus = n.urgency === 'High' ? 6 : n.urgency === 'Medium' ? 3 : 0
         const randomVariance = Math.floor(Math.random() * 4)
         const baseScore = directMatch ? 87 : 60
         const score = Math.min(98, Math.max(40, baseScore + locationBonus + urgencyBonus + randomVariance))
-
         const locationNote = sameNeighborhood
           ? `in your neighborhood`
           : sameCity
           ? `in your city`
           : `in a different city (remote support possible)`
-
         const reason = directMatch
           ? `Your ${form.skills} skills directly match this ${n.needType} need ${locationNote}.`
           : `Your availability ${locationNote} makes you a helpful fit for this task.`
@@ -132,8 +134,9 @@ Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
 
   const acceptTask = (id) => {
     setAccepted(prev => ({ ...prev, [id]: true }))
-    const needs = JSON.parse(localStorage.getItem('impactbridge_needs') || '[]')
-    const updated = needs.map(n => n.id === id ? { ...n, status: 'Matched' } : n)
+    const stored = JSON.parse(localStorage.getItem('impactbridge_needs') || '[]')
+    const allNeeds = stored.length > 0 ? stored : DEMO_NEEDS
+    const updated = allNeeds.map(n => n.id === id ? { ...n, status: 'Matched' } : n)
     localStorage.setItem('impactbridge_needs', JSON.stringify(updated))
   }
 
@@ -192,7 +195,7 @@ Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
             <p>Based on your skills and location, here are your top matches:</p>
           </div>
 
-          {matches && matches.map((match, i) => (
+          {matches && matches.length > 0 ? matches.map((match, i) => (
             <div key={i} className="match-card" style={{ marginTop: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ color: '#2d6a4f' }}>
@@ -238,7 +241,15 @@ Return ONLY a JSON array of top 3 matches. No extra text, no markdown:
                 </button>
               )}
             </div>
-          ))}
+          )) : (
+            <div style={{
+              background: 'white', borderRadius: '16px', padding: '2rem',
+              textAlign: 'center', marginTop: '1rem', color: '#666'
+            }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
+              <p>No open needs found right now. Check back soon!</p>
+            </div>
+          )}
 
           <button className="btn"
             onClick={() => { setDone(false); setMatches(null); setAccepted({}) }}
